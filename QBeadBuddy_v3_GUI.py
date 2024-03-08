@@ -1,25 +1,16 @@
-import warnings
-warnings.filterwarnings('ignore')
-import sys
-from PyQt5 import QtWidgets, QtCore
-from PyQt5.QtWidgets import QMainWindow, QFileDialog
-import PyQt5.QtGui as QtGui
-from PyQt5.QtGui import QImage
-from skimage import io
-import numpy as np
-import os
-import pyclesperanto_prototype as cle
-from plotcanvas import PlotCanvas
-from termcolor import colored
-import colorcet as cc
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
-from MasterSegmenter import MasterSegmenter
-from F_C20_Optimization import C20_optimization , C20_rotation_outputs
-from StressTensor_tools import BeadSolver
+# -*- coding: utf-8 -*-
+
+# Form implementation generated from reading ui file 'QBeadBuddy_v3.ui'
+#
+# Created by: PyQt5 UI code generator 5.14.1
+#
+# WARNING! All changes made in this file will be lost!
 
 
-class Ui_MainWindow(QMainWindow):
+from PyQt5 import QtCore, QtGui, QtWidgets
+
+
+class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
         MainWindow.resize(1098, 605)
@@ -146,9 +137,6 @@ class Ui_MainWindow(QMainWindow):
         self.Canvas_3.setStyleSheet("background-color: rgb(0, 0, 0);")
         self.Canvas_3.setText("")
         self.Canvas_3.setObjectName("Canvas_3")
-        self.Canvas_1.setScaledContents(True)
-        self.Canvas_2.setScaledContents(True)
-        self.Canvas_3.setScaledContents(True)
         self.gridLayoutWidget_4 = QtWidgets.QWidget(self.centralwidget)
         self.gridLayoutWidget_4.setGeometry(QtCore.QRect(490, 460, 111, 104))
         self.gridLayoutWidget_4.setObjectName("gridLayoutWidget_4")
@@ -200,7 +188,7 @@ class Ui_MainWindow(QMainWindow):
 "font-weight: bold\n"
 "")
         self.BUTTON_Analyze_ALL.setObjectName("BUTTON_Analyze_ALL")
-        self.Canvas_3D = PlotCanvas(self.centralwidget)
+        self.Canvas_3D = plotCanvas(self.centralwidget)
         self.Canvas_3D.setGeometry(QtCore.QRect(870, 220, 200, 200))
         self.Canvas_3D.setStyleSheet("background-color: rgb(0, 0, 0);")
         self.Canvas_3D.setObjectName("Canvas_3D")
@@ -248,7 +236,7 @@ class Ui_MainWindow(QMainWindow):
         self.INPUT_Threshold_2.setText(_translate("MainWindow", "1"))
         self.label_pz.setText(_translate("MainWindow", "pz (um)"))
         self.label_pxy.setText(_translate("MainWindow", "pxy (um)"))
-        self.INPUT_SH_Order.setText(_translate("MainWindow", "3"))
+        self.INPUT_SH_Order.setText(_translate("MainWindow", "5"))
         self.label_SH_order.setText(_translate("MainWindow", "SH order"))
         self.BUTTON_Analyze_BEAD.setText(_translate("MainWindow", "Analyze \n"
 " BEAD"))
@@ -257,223 +245,11 @@ class Ui_MainWindow(QMainWindow):
         self.checkBox.setText(_translate("MainWindow", "External plots"))
         self.menuFile.setTitle(_translate("MainWindow", "File..."))
         self.Button_Open.setText(_translate("MainWindow", "Open TIFF"))
-        
-        '''
-        Initial disable of buttons
-        '''
-        self.BUTTON_Segment.setEnabled(False)
-        self.BUTTON_Analyze_BEAD.setEnabled(False)
-        self.BUTTON_Analyze_ALL.setEnabled(False)
-        self.Slider_1.setEnabled(False)
-        self.Slider_2.setEnabled(False)
-        '''
-        GPU Initialization for Esperanto
-        '''
-        GPUs = cle.available_device_names()
-        cle.select_device(GPUs[0])
-        print('-'*60)
-        print(colored('The GPU ' + GPUs[0] + ' has been selected for MasterSegmenter', 'cyan'))
-        print('-'*60)
-        '''
-        Custom colormaps for plots
-        '''
-        self.cmap_viridis = plt.get_cmap('viridis')
-        self.mycmap2 = cc.glasbey_bw_minc_20_minl_30
-        self.mycmap2[0]=[0,0,0] # add black as first value
-        self.cmap_glasbey = LinearSegmentedColormap.from_list('cmap_glasbey', self.mycmap2)
-        
-        '''
-        Button-function connections
-        '''
-        self.Button_Open.triggered.connect(self.OpenDialogTIFF)
-        self.Slider_1.valueChanged.connect(self.Slide_Canvas_1)
-        self.Slider_2.valueChanged.connect(self.Slide_Canvas_2)
-        self.BUTTON_Segment.clicked.connect(self.Segment)
-        self.Canvas_2.mousePressEvent = self.GetClick
-        self.pixvalue = 0
-        self.BUTTON_Analyze_BEAD.clicked.connect(self.AnalyzeBEAD)
-        
-
-##########################################################################################        
-    
-    def apply_colormap(self, img_array, colormap):
-        '''
-        Applies a colormap to an array and converts it to Qimage for fast plotting in QLabels
-        '''
-        normalized_img = (img_array - np.min(img_array)) / (np.max(img_array) - np.min(img_array))
-        rgba_img = (colormap(normalized_img) * 255).astype(np.uint8)
-        height, width = rgba_img.shape[:2]
-        bytes_per_line = width * 4
-        QIm_colored = QImage(rgba_img.data, width, height, bytes_per_line, QImage.Format_RGBA8888)
-        return QIm_colored
-        
-    def OpenDialogTIFF(self):
-        '''
-        Open Load dialog, import tiff and plot its first frame
-        '''
-        fileNameTIFF = QFileDialog.getOpenFileName(self, 'Open File', '/media/alejandro/Coding/MyGits/', ('Image Files(*.tiff, *.tif)') )   
-        if fileNameTIFF[0] == '':
-            return None
-        else:    
-            self.fileNameTIFF = fileNameTIFF[0]
-            self.FolderName = os.path.dirname(self.fileNameTIFF)
-
-        # Load, pick frame, plot
-        self.OriginalTIFF = io.imread(self.fileNameTIFF)
-        self.Layers, self.Height, self.Width = np.shape(self.OriginalTIFF)
-        
-        Qimg_colored = self.apply_colormap(self.OriginalTIFF[0,:,:], self.cmap_viridis)
-        self.Canvas_1.setPixmap(QtGui.QPixmap.fromImage(Qimg_colored))
-       
-        # Activate sliders and buttons
-        self.Slider_1.setEnabled(True)
-        self.Slider_1.setMinimum(0)
-        self.Slider_1.setMaximum(self.Layers-1)
-        self.BUTTON_Segment.setEnabled(True)
-        
-    def Slide_Canvas_1(self):
-        '''
-        Reads position of Slider_1 and scrolls through the TIFF
-        '''
-        Qimg_colored = self.apply_colormap(self.OriginalTIFF[self.Slider_1.value(),:,:], self.cmap_viridis)
-        self.Canvas_1.setPixmap(QtGui.QPixmap.fromImage(Qimg_colored))
-
-
-    def Segment(self):
-        print('Segmenting...')
-        self.backg_r = int(self.INPUT_BGnoise.text())
-        self.thr = int(self.INPUT_Threshold.text())
-        self.s_spot = int(self.INPUT_Spot.text())
-        self.s_outl = int(self.INPUT_Outline.text())
-        self.imbeads, self.n, self.radii = MasterSegmenter(self.fileNameTIFF,
-                                                   backg_r = self.backg_r, 
-                                                   threshold = self.thr, 
-                                                   spot_sigma = self.s_spot, 
-                                                   outline_sigma = self.s_outl)
-        print(f'# Found {self.n} beads')
-        print(colored('SEGMENTED \n', 'green'))
-        
-        # Plot middle frame, and force first canvas to do the same
-        midlayer = int(self.Layers/2)
-        
-        Qimg_segmented_colored = self.apply_colormap(self.imbeads[midlayer,:,:], self.cmap_glasbey)
-        self.Canvas_2.setPixmap(QtGui.QPixmap.fromImage(Qimg_segmented_colored))
-        self.Slider_1.setValue(midlayer)
-        
-        Qimg_colored = self.apply_colormap(self.OriginalTIFF[midlayer,:,:], self.cmap_viridis)
-        self.Canvas_1.setPixmap(QtGui.QPixmap.fromImage(Qimg_colored))
-        self.Slider_2.setValue(midlayer)
-        
-        # Activate slider and update
-        self.Slider_2.setEnabled(True)
-        self.Slider_2.setMinimum(0)
-        self.Slider_2.setMaximum(self.Layers-1)
-        
-        # Activate the analysis, and prepare a dummy value for the pixel size
-        self.BUTTON_Analyze_BEAD.setEnabled(True)
-        self.BUTTON_Analyze_ALL.setEnabled(True)
-        self.pixvalue = 0
-    
-    def Slide_Canvas_2(self):
-        '''
-        Reads position of Slider_2 and scrolls through the segmented picture
-        forcing the first plot to follow it
-        '''
-        Qimg_segment_colored = self.apply_colormap(self.imbeads[self.Slider_2.value(),:,:], self.cmap_glasbey)
-        self.Canvas_2.setPixmap(QtGui.QPixmap.fromImage(Qimg_segment_colored))
-        
-        self.Slider_1.setValue(self.Slider_2.value())
-        Qimg_colored = self.apply_colormap(self.OriginalTIFF[self.Slider_2.value(),:,:], self.cmap_viridis)
-        self.Canvas_1.setPixmap(QtGui.QPixmap.fromImage(Qimg_colored))
-        
-    def GetClick(self, event):
-        '''
-        Calls a click event in Canvas_2 (segmentation) and stores the pixel value
-        thet should be analyzed upon pushing a button
-        '''
-        x, y, z = event.x(), event.y(), self.Slider_2.value()
-        Qx, Qy, Qz = int((x/400)*self.Width), int((y/400)*self.Height), z
-        self.pixvalue = self.imbeads[Qz, Qy, Qx]
-        
-        if self.pixvalue==0:
-            print(colored(f'Clicked on the background', 'red'))
-        else:
-            print(colored(f'Clicked on bead # {self.pixvalue}', 'green'))
-                          
-    def AnalyzeBEAD(self):
-        '''
-        Takes a pixel value of the binary picture, crops the corresponding bead
-        plots its cross section in Canvas_3 and calls ExpandAndSave
-        
-        '''
-        self.SHOrd = int(self.INPUT_SH_Order.text())
-        if self.pixvalue==0:
-            print(colored('You have not clicked on a bead yet!', 'red'))
-        else:
-            # crop picture to only contain our desired bead
-            buffer=5
-            coords = np.where(self.imbeads==self.pixvalue)
-            lim_z = [np.min(coords[0])-buffer, np.max(coords[0])+buffer]
-            lim_y = [np.min(coords[1])-buffer, np.max(coords[1])+buffer]
-            lim_x = [np.min(coords[2])-buffer, np.max(coords[2])+buffer]
-            
-            # cropped, masked, segmented and binary versions 
-            crop = self.imbeads[lim_z[0]:lim_z[1], lim_y[0]:lim_y[1], lim_x[0]:lim_x[1]]
-            self.masked = (crop==self.pixvalue)*1
-            
-            # show central slice
-            Qimg_cropped = self.apply_colormap(self.masked[int(np.shape(crop)[0]/2),:,:], self.cmap_glasbey)
-            self.Canvas_3.setPixmap(QtGui.QPixmap.fromImage(Qimg_cropped))
-            
-            # Expand and save the SHTable, using the current masked picture
-            self.ExpandAndSave()
-            
-            # The table has been saved as .npy
-            # We LOAD IT (a little redundant, but is better for the structure)
-            print('The stress is being calculated...')
-
-            self.LoadName = self.FolderSaveName + '/' + 'SH_Array_Bead_' + str(self.pixvalue).zfill(4) + '.npy'
-            # Create axes:
-            plt.style.use('dark_background')
-                        
-            # Two cases for external or internal plots
-            if self.checkBox.isChecked():    
-                self.fig = plt.figure(figsize=(6,6))
-                self.newax = self.fig.add_subplot(111, projection='3d')
-                BeadSolver(self.LoadName, mode='npy', Order=self.SHOrd, show2D=True, axs3D=self.newax)
-            else:
-                self.ax = self.Canvas_3D.figure.add_subplot(111, projection='3d')
-                BeadSolver(self.LoadName, mode='npy', Order=self.SHOrd, show2D=False, axs3D=self.ax)
-                self.Canvas_3D.draw()
-
-                  
-    def ExpandAndSave(self):
-        '''
-        Takes the current surface picture (as per the last bead clicked),
-        calculates its SH expansion,and saves the SHTable
-        It should also generate the 2D and 3D plots, to which ANALYZEBEAD will call back 
-        '''
-        surface = cle.detect_label_edges(self.masked)
-        im_binary = cle.pull(surface).astype(bool)   
-        
-        px, pz = float(self.INPUT_pxy.text()), float(self.INPUT_Threshold_2.text())
-        #SHOrd = int(self.INPUT_SH_Order.text())
-
-        self.OptimalRotation = C20_optimization(im_binary, self.SHOrd, px, pz)
-        self.Coord, self.Coord_orig, self.SHTable, self.FitCoord = C20_rotation_outputs(self.OptimalRotation, im_binary, self.SHOrd, px, pz)
-
-        # Save SHTable as .npy
-        self.FolderSaveName = self.FolderName + '/SH_Analysis/'
-        if not os.path.exists(self.FolderSaveName):
-            os.mkdir(self.FolderSaveName)
-        
-        self.ArraySaveName = self.FolderSaveName+'/'+'SH_Array_Bead_'+str(self.pixvalue).zfill(4)+'.npy'
-        np.save(self.ArraySaveName, self.SHTable)
-        
-
+from plotcanvas import plotCanvas
 
 
 if __name__ == "__main__":
+    import sys
     app = QtWidgets.QApplication(sys.argv)
     MainWindow = QtWidgets.QMainWindow()
     ui = Ui_MainWindow()
