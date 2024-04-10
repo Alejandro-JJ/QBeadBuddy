@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import QMainWindow, QFileDialog
 import PyQt5.QtGui as QtGui
 from PyQt5.QtGui import QImage
 from skimage import io
+from tifffile import imwrite
 import numpy as np
 import os
 import pyclesperanto_prototype as cle
@@ -268,11 +269,24 @@ class Ui_MainWindow(QMainWindow):
         self.Slider_2.setEnabled(False)
         '''
         GPU Initialization for Esperanto
+        Ask user for which GPU to use
         '''
         GPUs = cle.available_device_names()
-        cle.select_device(GPUs[0])
+        print('Available Grafic Cards:')
+        for i, GPU in enumerate(GPUs):
+            print(f'[{i+1}]   {GPU}\n')
+        
+        while True:
+            GPUindex = input('Please enter the index of the GPU you want to use:  ')    
+            GPUindex = int(GPUindex)-1
+            if GPUindex in np.arange(0,len(GPUs),1):
+                cle.select_device(GPUs[GPUindex])
+                break
+            else:
+                print('You entered a not valid index')
+        
         print('-'*60)
-        print(colored('The GPU ' + GPUs[0] + ' has been selected for MasterSegmenter', 'cyan'))
+        print(colored('The GPU ' + GPUs[GPUindex] + ' has been selected for QBeadBuddy', 'cyan'))
         print('-'*60)
         '''
         Custom colormaps for plots
@@ -292,6 +306,7 @@ class Ui_MainWindow(QMainWindow):
         self.Canvas_2.mousePressEvent = self.GetClick
         self.pixvalue = 0
         self.BUTTON_Analyze_BEAD.clicked.connect(self.AnalyzeBEAD)
+        self.BUTTON_Analyze_ALL.clicked.connect(self.AnalyzeALL)
         
 
 ##########################################################################################        
@@ -407,6 +422,8 @@ class Ui_MainWindow(QMainWindow):
         
         '''
         self.SHOrd = int(self.INPUT_SH_Order.text())
+        self.nu = float(self.INPUT_Poisson.text())
+        self.G = int(self.INPUT_G.text())
         if self.pixvalue==0:
             print(colored('You have not clicked on a bead yet!', 'red'))
         else:
@@ -426,7 +443,7 @@ class Ui_MainWindow(QMainWindow):
             self.Canvas_3.setPixmap(QtGui.QPixmap.fromImage(Qimg_cropped))
             
             # Expand and save the SHTable, using the current masked picture
-            self.ExpandAndSave()
+            self.ExpandAndSave(self.pixvalue)
             
             # The table has been saved as .npy
             # We LOAD IT (a little redundant, but is better for the structure)
@@ -438,16 +455,48 @@ class Ui_MainWindow(QMainWindow):
                         
             # Two cases for external or internal plots
             if self.checkBox.isChecked():    
-                self.fig = plt.figure(figsize=(6,6))
-                self.newax = self.fig.add_subplot(111, projection='3d')
-                BeadSolver(self.LoadName, mode='npy', Order=self.SHOrd, show2D=True, axs3D=self.newax)
+                # external for radius
+                self.fig1 = plt.figure(figsize=(6,6))
+                self.newax1 = self.fig1.add_subplot(111, projection='3d')
+                
+                # external for tension
+                self.fig2 = plt.figure(figsize=(6,6))
+                self.newax2 = self.fig2.add_subplot(111, projection='3d')
+                BeadSolver(self.LoadName, mode='npy', Order=self.SHOrd, show2D=True, axs3D=[self.newax1,self.newax2], nu_exp=self.n, G_exp=self.G)
+                
             else:
                 self.ax = self.Canvas_3D.figure.add_subplot(111, projection='3d')
-                BeadSolver(self.LoadName, mode='npy', Order=self.SHOrd, show2D=False, axs3D=self.ax)
+                map_T_real, force = BeadSolver(self.LoadName, mode='npy', Order=self.SHOrd, show2D=False, axs3D=self.ax, force=True, nu_exp=self.n, G_exp=self.G)
                 self.Canvas_3D.draw()
-
-                  
-    def ExpandAndSave(self):
+    
+    def AnalyzeALL(self):
+        self.SHOrd = int(self.INPUT_SH_Order.text())
+        # Number of detected beads has been previously defined
+        for iter_pixvalue in range(1,self.n+1):
+            print(f'Analyzing bead {iter_pixvalue}')
+             # Crop 
+            buffer=5
+            coords = np.where(self.imbeads==iter_pixvalue)
+            lim_z = [np.min(coords[0])-buffer, np.max(coords[0])+buffer]
+            lim_y = [np.min(coords[1])-buffer, np.max(coords[1])+buffer]
+            lim_x = [np.min(coords[2])-buffer, np.max(coords[2])+buffer]
+            # cropped, masked, segmented and binary versions 
+            crop = self.imbeads[lim_z[0]:lim_z[1], lim_y[0]:lim_y[1], lim_x[0]:lim_x[1]]
+            self.masked = (crop==iter_pixvalue)*1
+            # Save masked tiff
+            imwrite(self.FolderName + '/SH_Analysis/BeadCropped_'+str(iter_pixvalue).zfill(4)+'.tif', self.masked.astype('float32'))
+            
+            #Make Expansion and save
+            self.ExpandAndSave(iter_pixvalue)
+            
+            # Solve bead and save Tension map and force
+            self.LoadName = self.FolderSaveName + '/' + 'SH_Array_Bead_' + str(iter_pixvalue).zfill(4) + '.npy'
+            map_T_real, force = BeadSolver(self.LoadName, mode='npy', Order=self.SHOrd, blind=True, show2D=False, axs3D=None, force=True)
+            # We could still save the 2D map!!!!
+            '''
+            TO BE IMPLEMENTED
+            '''
+    def ExpandAndSave(self, pixvaluesave):
         '''
         Takes the current surface picture (as per the last bead clicked),
         calculates its SH expansion,and saves the SHTable
@@ -459,16 +508,25 @@ class Ui_MainWindow(QMainWindow):
         px, pz = float(self.INPUT_pxy.text()), float(self.INPUT_Threshold_2.text())
         #SHOrd = int(self.INPUT_SH_Order.text())
 
-        self.OptimalRotation = C20_optimization(im_binary, self.SHOrd, px, pz)
-        self.Coord, self.Coord_orig, self.SHTable, self.FitCoord = C20_rotation_outputs(self.OptimalRotation, im_binary, self.SHOrd, px, pz)
+        #self.OptimalRotation = C20_optimization(im_binary, self.SHOrd, px, pz)
+        RotationTXT = C20_optimization(im_binary, self.SHOrd, px, pz) # for saving
+        # Hard-coded not rotation:
+        self.OptimalRotation = [0,0]
+#        self.Coord, self.Coord_orig, self.SHTable, self.FitCoord = C20_rotation_outputs(self.OptimalRotation, im_binary, self.SHOrd, px, pz)
+        # Hard-coded radius resolution
+        ExpandRes = 15
+        self.Coord, self.Coord_orig, self.SHTable, self.FitCoord = C20_rotation_outputs(self.OptimalRotation, im_binary, ExpandRes, px, pz)
 
         # Save SHTable as .npy
         self.FolderSaveName = self.FolderName + '/SH_Analysis/'
         if not os.path.exists(self.FolderSaveName):
             os.mkdir(self.FolderSaveName)
         
-        self.ArraySaveName = self.FolderSaveName+'/'+'SH_Array_Bead_'+str(self.pixvalue).zfill(4)+'.npy'
+#        self.ArraySaveName = self.FolderSaveName+'/'+'SH_Array_Bead_'+str(self.pixvalue).zfill(4)+'.npy'
+        self.ArraySaveName = self.FolderSaveName+'/'+'SH_Array_Bead_'+str(pixvaluesave).zfill(4)+'.npy'
+        self.RotationSaveName = self.FolderSaveName+'/'+'Rotation_'+str(pixvaluesave).zfill(4)+'.txt'
         np.save(self.ArraySaveName, self.SHTable)
+        np.savetxt(self.RotationSaveName, RotationTXT)
         
 
 
